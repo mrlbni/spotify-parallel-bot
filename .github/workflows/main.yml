@@ -1,103 +1,31 @@
-import os
-import time
-import requests
-import subprocess
+name: Spotify Bot
 
-BOT_TOKEN = os.environ["BOT_TOKEN"]
-API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
 
-DOWNLOAD_DIR = "downloads"
-OFFSET_FILE = "offset.txt"
+jobs:
+  run:
 
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    runs-on: ubuntu-latest
 
-def get_offset():
-    if not os.path.exists(OFFSET_FILE):
-        return 0
-    return int(open(OFFSET_FILE).read().strip())
+    steps:
 
-def save_offset(offset):
-    open(OFFSET_FILE, "w").write(str(offset))
+      - uses: actions/checkout@v3
 
-def send_message(chat, text):
-    requests.post(API + "/sendMessage", json={
-        "chat_id": chat,
-        "text": text
-    })
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
 
-def send_audio(chat, file_path):
+      - name: Install deps
+        run: pip install -r requirements.txt
 
-    with open(file_path, "rb") as audio:
-        requests.post(
-            API + "/sendAudio",
-            data={"chat_id": chat},
-            files={"audio": audio}
-        )
+      - name: Create cookies
+        run: |
+          echo "${{ secrets.SPOTIFY_COOKIES }}" > cookies.txt
 
-def download_spotify(url):
-
-    subprocess.run([
-        "spotdl",
-        url,
-        "--cookie-file",
-        "cookies.txt",
-        "--threads",
-        "4",
-        "--output",
-        f"{DOWNLOAD_DIR}/{{artist}} - {{title}}.mp3"
-    ])
-
-def check_messages():
-
-    offset = get_offset()
-
-    r = requests.get(API + "/getUpdates", params={"offset": offset})
-    updates = r.json()["result"]
-
-    for u in updates:
-
-        offset = u["update_id"] + 1
-
-        if "message" not in u:
-            continue
-
-        msg = u["message"]
-        chat = msg["chat"]["id"]
-        text = msg.get("text", "")
-
-        if text.startswith("/start"):
-
-            send_message(chat,"🎵 Send Spotify Track or Playlist URL")
-
-        elif "spotify.com" in text:
-
-            send_message(chat,"⚡ Downloading music...")
-
-            download_spotify(text)
-
-            files = os.listdir(DOWNLOAD_DIR)
-
-            for f in files:
-
-                path = os.path.join(DOWNLOAD_DIR, f)
-
-                send_audio(chat, path)
-
-                os.remove(path)
-
-            send_message(chat,"✅ Finished")
-
-    save_offset(offset)
-
-if __name__ == "__main__":
-
-    start = time.time()
-
-    while time.time() - start < 240:
-
-        try:
-            check_messages()
-        except Exception as e:
-            print(e)
-
-        time.sleep(5)
+      - name: Run bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: python bot.py
