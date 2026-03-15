@@ -1,15 +1,14 @@
 import os
+import time
 import requests
 import subprocess
 import zipfile
-import shutil
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-OFFSET_FILE = "offset.txt"
 DOWNLOAD_DIR = "downloads"
-ZIP_FILE = "playlist.zip"
+OFFSET_FILE = "offset.txt"
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
@@ -21,61 +20,56 @@ def get_offset():
 
 
 def save_offset(offset):
-    with open(OFFSET_FILE, "w") as f:
-        f.write(str(offset))
+    open(OFFSET_FILE, "w").write(str(offset))
 
 
-def send_message(chat_id, text):
-    requests.post(f"{API}/sendMessage", json={
-        "chat_id": chat_id,
+def send_message(chat, text):
+    requests.post(API + "/sendMessage", json={
+        "chat_id": chat,
         "text": text
     })
 
 
-def send_zip(chat_id, path):
+def send_file(chat, path):
     with open(path, "rb") as f:
         requests.post(
-            f"{API}/sendDocument",
-            data={"chat_id": chat_id},
+            API + "/sendDocument",
+            data={"chat_id": chat},
             files={"document": f}
         )
 
 
 def download_playlist(url):
 
-    cmd = [
+    subprocess.run([
         "spotdl",
         url,
         "--cookie-file",
         "cookies.txt",
         "--threads",
-        "6",
+        "4",
         "--output",
         f"{DOWNLOAD_DIR}/{{artist}} - {{title}}.mp3"
-    ]
-
-    subprocess.run(cmd)
+    ])
 
 
-def zip_playlist():
+def zip_files():
 
-    with zipfile.ZipFile(ZIP_FILE, "w") as zipf:
+    zipname = "playlist.zip"
 
-        for file in os.listdir(DOWNLOAD_DIR):
+    with zipfile.ZipFile(zipname, "w") as zipf:
+        for f in os.listdir(DOWNLOAD_DIR):
+            path = os.path.join(DOWNLOAD_DIR, f)
+            zipf.write(path, f)
 
-            path = os.path.join(DOWNLOAD_DIR, file)
-
-            zipf.write(path, file)
-
-    shutil.rmtree(DOWNLOAD_DIR)
-    os.makedirs(DOWNLOAD_DIR)
+    return zipname
 
 
-def process_updates():
+def check_messages():
 
     offset = get_offset()
 
-    r = requests.get(f"{API}/getUpdates?offset={offset}")
+    r = requests.get(API + "/getUpdates", params={"offset": offset})
     updates = r.json()["result"]
 
     for u in updates:
@@ -86,39 +80,41 @@ def process_updates():
             continue
 
         msg = u["message"]
-        chat_id = msg["chat"]["id"]
+        chat = msg["chat"]["id"]
         text = msg.get("text", "")
 
         if text.startswith("/start"):
 
-            send_message(chat_id,
-                "🎵 Send Spotify playlist or track link")
+            send_message(chat,
+            "🎵 Send Spotify playlist or track link")
 
         elif "spotify.com" in text:
 
-            send_message(chat_id,
-                "⚡ Downloading playlist (parallel mode)...")
+            send_message(chat, "⚡ Downloading playlist...")
 
-            try:
+            download_playlist(text)
 
-                download_playlist(text)
+            send_message(chat, "📦 Creating ZIP...")
 
-                send_message(chat_id,"📦 Creating ZIP...")
+            zipname = zip_files()
 
-                zip_playlist()
+            send_file(chat, zipname)
 
-                send_zip(chat_id, ZIP_FILE)
-
-                os.remove(ZIP_FILE)
-
-                send_message(chat_id,"✅ Done")
-
-            except Exception as e:
-
-                send_message(chat_id,f"❌ Error: {e}")
+            send_message(chat, "✅ Finished")
 
     save_offset(offset)
 
 
 if __name__ == "__main__":
-    process_updates()
+
+    start = time.time()
+
+    # run bot for 4 minutes
+    while time.time() - start < 240:
+
+        try:
+            check_messages()
+        except Exception as e:
+            print(e)
+
+        time.sleep(5)
