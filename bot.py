@@ -11,28 +11,46 @@ OFFSET_FILE = "offset.txt"
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+
 def get_offset():
     if not os.path.exists(OFFSET_FILE):
         return 0
-    return int(open(OFFSET_FILE).read().strip())
+    return int(open(OFFSET_FILE).read())
+
 
 def save_offset(offset):
     open(OFFSET_FILE, "w").write(str(offset))
 
+
 def send_message(chat, text):
-    requests.post(API + "/sendMessage", json={
+
+    r = requests.post(API + "/sendMessage", json={
         "chat_id": chat,
         "text": text
     })
 
-def send_audio(chat, file_path):
+    return r.json()["result"]["message_id"]
 
-    with open(file_path, "rb") as audio:
+
+def edit_message(chat, msg_id, text):
+
+    requests.post(API + "/editMessageText", json={
+        "chat_id": chat,
+        "message_id": msg_id,
+        "text": text
+    })
+
+
+def send_audio(chat, path):
+
+    with open(path, "rb") as f:
+
         requests.post(
             API + "/sendAudio",
             data={"chat_id": chat},
-            files={"audio": audio}
+            files={"audio": f}
         )
+
 
 def download_spotify(url):
 
@@ -47,7 +65,8 @@ def download_spotify(url):
         f"{DOWNLOAD_DIR}/{{artist}} - {{title}}.mp3"
     ])
 
-def check_messages():
+
+def check_updates():
 
     offset = get_offset()
 
@@ -67,27 +86,38 @@ def check_messages():
 
         if text.startswith("/start"):
 
-            send_message(chat,"🎵 Send Spotify Track or Playlist URL")
+            send_message(chat,"🎵 Send Spotify link")
 
         elif "spotify.com" in text:
 
-            send_message(chat,"⚡ Downloading music...")
+            msg_id = send_message(chat,"⏳ Starting download...")
+
+            edit_message(chat,msg_id,"⬇️ Downloading music...")
 
             download_spotify(text)
 
             files = os.listdir(DOWNLOAD_DIR)
 
+            total = len(files)
+            count = 0
+
             for f in files:
 
-                path = os.path.join(DOWNLOAD_DIR, f)
+                path = os.path.join(DOWNLOAD_DIR,f)
 
-                send_audio(chat, path)
+                edit_message(chat,msg_id,
+                f"📤 Uploading {count+1}/{total}")
+
+                send_audio(chat,path)
 
                 os.remove(path)
 
-            send_message(chat,"✅ Finished")
+                count += 1
+
+            edit_message(chat,msg_id,"✅ Finished")
 
     save_offset(offset)
+
 
 if __name__ == "__main__":
 
@@ -96,7 +126,7 @@ if __name__ == "__main__":
     while time.time() - start < 240:
 
         try:
-            check_messages()
+            check_updates()
         except Exception as e:
             print(e)
 
