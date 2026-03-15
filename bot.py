@@ -2,7 +2,6 @@ import os
 import time
 import requests
 import subprocess
-import zipfile
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
@@ -12,16 +11,13 @@ OFFSET_FILE = "offset.txt"
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-
 def get_offset():
     if not os.path.exists(OFFSET_FILE):
         return 0
     return int(open(OFFSET_FILE).read().strip())
 
-
 def save_offset(offset):
     open(OFFSET_FILE, "w").write(str(offset))
-
 
 def send_message(chat, text):
     requests.post(API + "/sendMessage", json={
@@ -29,17 +25,16 @@ def send_message(chat, text):
         "text": text
     })
 
+def send_audio(chat, file_path):
 
-def send_file(chat, path):
-    with open(path, "rb") as f:
+    with open(file_path, "rb") as audio:
         requests.post(
-            API + "/sendDocument",
+            API + "/sendAudio",
             data={"chat_id": chat},
-            files={"document": f}
+            files={"audio": audio}
         )
 
-
-def download_playlist(url):
+def download_spotify(url):
 
     subprocess.run([
         "spotdl",
@@ -51,19 +46,6 @@ def download_playlist(url):
         "--output",
         f"{DOWNLOAD_DIR}/{{artist}} - {{title}}.mp3"
     ])
-
-
-def zip_files():
-
-    zipname = "playlist.zip"
-
-    with zipfile.ZipFile(zipname, "w") as zipf:
-        for f in os.listdir(DOWNLOAD_DIR):
-            path = os.path.join(DOWNLOAD_DIR, f)
-            zipf.write(path, f)
-
-    return zipname
-
 
 def check_messages():
 
@@ -85,31 +67,32 @@ def check_messages():
 
         if text.startswith("/start"):
 
-            send_message(chat,
-            "🎵 Send Spotify playlist or track link")
+            send_message(chat,"🎵 Send Spotify Track or Playlist URL")
 
         elif "spotify.com" in text:
 
-            send_message(chat, "⚡ Downloading playlist...")
+            send_message(chat,"⚡ Downloading music...")
 
-            download_playlist(text)
+            download_spotify(text)
 
-            send_message(chat, "📦 Creating ZIP...")
+            files = os.listdir(DOWNLOAD_DIR)
 
-            zipname = zip_files()
+            for f in files:
 
-            send_file(chat, zipname)
+                path = os.path.join(DOWNLOAD_DIR, f)
 
-            send_message(chat, "✅ Finished")
+                send_audio(chat, path)
+
+                os.remove(path)
+
+            send_message(chat,"✅ Finished")
 
     save_offset(offset)
-
 
 if __name__ == "__main__":
 
     start = time.time()
 
-    # run bot for 4 minutes
     while time.time() - start < 240:
 
         try:
