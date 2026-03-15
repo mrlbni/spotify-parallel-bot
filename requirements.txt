@@ -1,0 +1,3 @@
+spotdl
+requests
+yt-dlp
